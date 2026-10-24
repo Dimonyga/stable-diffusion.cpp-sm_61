@@ -19,37 +19,16 @@ cmake --build . --config Release -j $(nproc)
 
 > **Note:** Ensure you add the other flags you would normally use (e.g., `-DSD_VULKAN=ON`, `-DSD_CUDA=ON`, `-DSD_HIPBLAS=ON`, or `-DGGML_METAL=ON`), for more information about building `stable-diffusion.cpp` from source, please refer to the [build.md](build.md) documentation.
 
-## 2. Ensure `llama.cpp` is at the correct commit
+## 2. Use the matching `llama.cpp`
 
-`stable-diffusion.cpp`'s RPC client is designed to work with a specific version of `llama.cpp` (compatible with the `ggml` submodule) to ensure API compatibility. The commit hash for `llama.cpp` is stored in `ggml/scripts/sync-llama.last`.
+`stable-diffusion.cpp`'s RPC client is designed to work with a specific version of `llama.cpp` to ensure API compatibility. The `thirdparty/llama.cpp` submodule (llama.cpp-sm_61) is that version, so the RPC server is built from it.
 
 > **Start from Root:** Perform these steps from the root of your `stable-diffusion.cpp` directory.
 
-1.  Read the target commit hash from the submodule tracker:
-
-    ```bash
-    # Linux / WSL / MacOS
-    HASH=$(cat ggml/scripts/sync-llama.last)
-
-    # Windows (PowerShell)
-    $HASH = Get-Content -Path "ggml\scripts\sync-llama.last"
-    ```
-
-2.  Clone `llama.cpp` at the target commit .
-    ```bash
-    git clone https://github.com/ggml-org/llama.cpp.git
-    cd llama.cpp
-    git checkout $HASH
-    ```
-    To save on download time and storage, you can use a shallow clone to download only the target commit:
-    ```bash
-    mkdir -p llama.cpp
-    cd llama.cpp
-    git init
-    git remote add origin https://github.com/ggml-org/llama.cpp.git
-    git fetch --depth 1 origin $HASH
-    git checkout FETCH_HEAD
-    ```
+```bash
+git submodule update --init thirdparty/llama.cpp
+cd thirdparty/llama.cpp
+```
 
 ## 3. Build `llama.cpp` (RPC Server)
 

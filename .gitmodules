@@ -10,4 +10,4 @@
 [submodule "thirdparty/llama.cpp"]
 	path = thirdparty/llama.cpp
 	url = https://github.com/Dimonyga/llama.cpp-sm_61.git
-	branch = ggml-sd
+	shallow = true
