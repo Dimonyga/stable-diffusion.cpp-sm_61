@@ -100,7 +100,7 @@ documentation.
 
 ### External, Local, and Generated State
 
-* `ggml/` - git submodule for the ggml dependency.
+* `thirdparty/llama.cpp/` - git submodule (llama.cpp-sm_61); its `ggml/` directory is the ggml dependency.
 * `thirdparty/` - vendored third-party dependencies.
 * `models/` - local model storage. Ignore this directory and do not read model
   files.

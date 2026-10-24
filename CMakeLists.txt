@@ -97,7 +97,7 @@ option(SD_BUILD_SHARED_LIBS          "sd: build shared libs" OFF)
 option(SD_BUILD_SHARED_GGML_LIB      "sd: build ggml as a separate shared lib" OFF)
 option(SD_USE_SYSTEM_GGML            "sd: use system-installed GGML library" OFF)
 option(SD_USE_UPSTREAM_GGML          "sd: build with upstream GGML instead of the patched GGML extensions" OFF)
-set(SD_GGML_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ggml" CACHE PATH "sd: ggml source directory (also supplies private headers for system ggml)")
+set(SD_GGML_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/llama.cpp/ggml" CACHE PATH "sd: ggml source directory (also supplies private headers for system ggml)")
 #option(SD_BUILD_SERVER               "sd: build server example"                           ON)
 
 set(CMAKE_C_STANDARD 11)

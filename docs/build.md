@@ -18,7 +18,7 @@ git submodule update
 
 ## Selecting a GGML source tree
 
-By default, sd.cpp builds the patched GGML submodule in `ggml/`. To build with
+By default, sd.cpp builds the patched GGML from the `thirdparty/llama.cpp` submodule (`thirdparty/llama.cpp/ggml`). To build with
 an upstream GGML checkout instead, enable `SD_USE_UPSTREAM_GGML` and set
 `SD_GGML_SOURCE_DIR`:
 

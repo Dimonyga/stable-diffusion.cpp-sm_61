@@ -7,7 +7,7 @@
 [submodule "thirdparty/libwebm"]
 	path = thirdparty/libwebm
 	url = https://github.com/webmproject/libwebm.git
-[submodule "ggml"]
-	path = ggml
-	url = https://github.com/Dimonyga/ggml-sm_61.git
-	branch = sm61
+[submodule "thirdparty/llama.cpp"]
+	path = thirdparty/llama.cpp
+	url = https://github.com/Dimonyga/llama.cpp-sm_61.git
+	branch = ggml-sd
