@@ -1,6 +1,3 @@
-[submodule "ggml"]
-    path = ggml
-	url = https://github.com/leejet/ggml.git
 [submodule "examples/server/frontend"]
 	path = examples/server/frontend
 	url = https://github.com/leejet/sdcpp-webui.git
@@ -10,3 +7,7 @@
 [submodule "thirdparty/libwebm"]
 	path = thirdparty/libwebm
 	url = https://github.com/webmproject/libwebm.git
+[submodule "ggml"]
+	path = ggml
+	url = https://github.com/Dimonyga/ggml-sm_61.git
+	branch = sm61
