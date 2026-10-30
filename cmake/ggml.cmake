@@ -21,6 +21,20 @@ endif()
 target_include_directories(${SD_LIB} PRIVATE "${sd_ggml_private_include}")
 set_property(TARGET ${SD_LIB} PROPERTY SD_GGML_PRIVATE_INCLUDE_DIR "${sd_ggml_private_include}")
 
+if(NOT SD_USE_UPSTREAM_GGML)
+    include(CheckCXXSourceCompiles)
+    include(CMakePushCheckState)
+    cmake_push_check_state(RESET)
+    set(CMAKE_REQUIRED_INCLUDES "${sd_ggml_private_include}/../include")
+    check_cxx_source_compiles("#include <ggml-backend.h>
+int main() { return sizeof(&ggml_backend_sched_set_compute_callback) == 0; }"
+        SD_GGML_HAS_SCHED_COMPUTE_CALLBACK)
+    cmake_pop_check_state()
+    if(SD_GGML_HAS_SCHED_COMPUTE_CALLBACK)
+        target_compile_definitions(${SD_LIB} PRIVATE SD_GGML_HAS_SCHED_COMPUTE_CALLBACK)
+    endif()
+endif()
+
 if(SD_USE_UPSTREAM_GGML)
     target_compile_definitions(${SD_LIB} PUBLIC SD_USE_UPSTREAM_GGML)
     message(WARNING "Using upstream GGML: INT8 tensorwise/convrot is disabled and FP8 weights are converted to F16 at load time. Some operators may be unsupported and performance may be lower than with patched GGML.")

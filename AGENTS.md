@@ -100,7 +100,8 @@ documentation.
 
 ### External, Local, and Generated State
 
-* `thirdparty/llama.cpp/` - git submodule (llama.cpp-sm_61); its `ggml/` directory is the ggml dependency.
+* `ggml/` - original upstream submodule, retained for merges; not used by the default build.
+* `thirdparty/llama.cpp/` - git submodule (llama.cpp-sm_61); its `ggml/` directory is the default ggml dependency, selected by CMake's `SD_GGML_SOURCE_DIR`.
 * `thirdparty/` - vendored third-party dependencies.
 * `models/` - local model storage. Ignore this directory and do not read model
   files.
