@@ -12,6 +12,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <csignal>
 
 // #include "preprocessing.hpp"
 #include "stable-diffusion.h"
@@ -31,6 +32,15 @@ const char* previews_str[] = {
 };
 
 std::regex format_specifier_regex("(?:[^%]|^)(?:%%)*(%\\d{0,3}d)");
+
+static std::string g_imatrix_out;
+static void sigint_handler(int sig) {
+    if (!g_imatrix_out.empty()) {
+        LOG_INFO("\nReceived signal %d, saving imatrix to '%s' before exit...", sig, g_imatrix_out.c_str());
+        save_imatrix(g_imatrix_out.c_str());
+    }
+    std::exit(128 + sig);
+}
 
 struct SDCliParams {
     SDMode mode             = IMG_GEN;
@@ -55,6 +65,7 @@ struct SDCliParams {
 
     std::string imatrix_out;
     std::vector<std::string> imatrix_in;
+    int imatrix_save_freq = 0;
 
     bool normal_exit = false;
 
@@ -90,6 +101,14 @@ struct SDCliParams {
         };
 
         options.int_options = {
+            {"",
+             "--imat-freq",
+             "frequency of periodic imatrix online saving in denoising steps (default: 0, save on exit only)",
+             &imatrix_save_freq},
+            {"",
+             "--imat-save-freq",
+             "alias for --imat-freq",
+             &imatrix_save_freq},
             {"",
              "--preview-interval",
              "preview interval: in each sampling pass, positive N updates every Nth denoiser step and -N previews only completed logical step N; 0 previews the final completed step of the first pass (base-resolution or high-noise). Default: 1",
@@ -265,6 +284,7 @@ struct SDCliParams {
             << "  preview_fps: " << preview_fps << ",\n"
             << "  preview_noisy: " << (preview_noisy ? "true" : "false") << ",\n"
             << "  imatrix_out: \"" << imatrix_out << "\",\n"
+            << "  imatrix_save_freq: " << imatrix_save_freq << ",\n"
             << "  metadata_raw: " << (metadata_raw ? "true" : "false") << ",\n"
             << "  metadata_brief: " << (metadata_brief ? "true" : "false") << ",\n"
             << "  metadata_all: " << (metadata_all ? "true" : "false") << "\n"
@@ -702,7 +722,10 @@ int main(int argc, const char* argv[]) {
             std::find(cli_params.imatrix_in.begin(), cli_params.imatrix_in.end(), cli_params.imatrix_out) == cli_params.imatrix_in.end()) {
             LOG_WARN("imatrix file '%s' already exists and will be overwritten", cli_params.imatrix_out.c_str());
         }
-        enable_imatrix_collection();
+        enable_imatrix_collection_ext(cli_params.imatrix_out.c_str(), cli_params.imatrix_save_freq);
+        g_imatrix_out = cli_params.imatrix_out;
+        std::signal(SIGINT, sigint_handler);
+        std::signal(SIGTERM, sigint_handler);
     }
 
     for (const auto& in_file : cli_params.imatrix_in) {
@@ -990,6 +1013,9 @@ int main(int argc, const char* argv[]) {
     if (!cli_params.imatrix_out.empty()) {
         LOG_INFO("saving imatrix to '%s'", cli_params.imatrix_out.c_str());
         save_imatrix(cli_params.imatrix_out.c_str());
+        g_imatrix_out.clear();
+        std::signal(SIGINT, SIG_DFL);
+        std::signal(SIGTERM, SIG_DFL);
     }
 
     free_sd_audio(generated_audio);

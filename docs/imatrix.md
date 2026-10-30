@@ -12,14 +12,16 @@ The imatrix feature involves two main steps: *training* the matrix and *using* i
 
 ### Training the Importance Matrix
 
-To generate an imatrix, run stable-diffusion.cpp with the `--imat-out` flag, specifying the output filename.  This process runs alongside normal image generation.
+To generate an imatrix, run stable-diffusion.cpp with the `--imat-out` flag, specifying the output filename. This process runs alongside normal image generation. Both standard GGUF imatrix format (`.gguf`, recommended) and legacy binary format (`.dat`) are supported.
 
 ```bash
-sd.exe [same exact parameters as normal generation] --imat-out imatrix.dat
+sd.exe [same exact parameters as normal generation] --imat-out imatrix.gguf --imat-freq 5
 ```
 
-*   **`[same exact parameters as normal generation]`**:  Use the same command-line arguments you would normally use for image generation (e.g., prompt, dimensions, sampling method, etc.).
-*   **`--imat-out imatrix.dat`**: Specifies the output file for the generated imatrix.
+*   **`[same exact parameters as normal generation]`**: Use the same command-line arguments you would normally use for image generation (e.g., prompt, dimensions, sampling method, etc.).
+*   **`--imat-out imatrix.gguf`**: Specifies the output file for the generated imatrix. Using `.gguf` saves in the standard GGUF imatrix format (compatible with `llama.cpp` tools), while specifying `.dat` saves in the legacy binary format.
+*   **`--imat-freq <N>` / `--imat-save-freq <N>`**: Periodically dumps the imatrix to disk every N denoising steps. Writes atomically to prevent corruption in case of unexpected termination (default: 0, save on exit only).
+*   **Graceful Interrupt**: If image generation is stopped with Ctrl+C (SIGINT) or SIGTERM, the current accumulated imatrix is flushed to disk before exit.
 
 You can generate multiple images at once using the `-b` flag to speed up the training process.
 
