@@ -56,6 +56,18 @@ cmake --build build --parallel
 Add `-DSD_CUDA=ON` for CUDA/sm_61, or `-DSD_BUILD_SHARED_LIBS=ON` for a shared
 library. The archive also includes these instructions in `BUILD.txt`.
 
+To package sources for an inference host that builds `sd-server` and `sd-cli`,
+add `--with-runners`:
+
+```shell
+python3 scripts/package_sources.py --with-runners
+```
+
+This includes the CLI, server and shared example code while excluding the Web UI
+submodule. Configure this archive with `-DSD_BUILD_EXAMPLES=ON
+-DSD_SERVER_BUILD_FRONTEND=OFF -DSD_WEBP=OFF -DSD_WEBM=OFF`, then build the
+`sd-server` and `sd-cli` targets. Model weights are not included.
+
 ## Selecting a GGML source tree
 
 By default, this fork builds the patched GGML from

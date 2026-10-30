@@ -13,6 +13,7 @@ import tarfile
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ARCHIVE_ROOT = Path("stable-diffusion.cpp")
 OMITTED_SUBMODULES = {
+    "examples/server/frontend",
     "thirdparty/libwebm",
     "thirdparty/libwebp",
     "thirdparty/llama.cpp",
@@ -60,28 +61,40 @@ def archive_metadata(info):
     return info
 
 
-def package_sources(output_dir):
+def package_sources(output_dir, with_runners=False):
     dependency = REPO_ROOT / "thirdparty/llama.cpp"
+    paths = ["CMakeLists.txt", "LICENSE", "cmake", "include", "src", "thirdparty"]
+    if with_runners:
+        paths.append("examples")
     files = source_files(
         REPO_ROOT,
-        ["CMakeLists.txt", "LICENSE", "cmake", "include", "src", "thirdparty"],
+        paths,
         OMITTED_SUBMODULES,
     )
     files.extend(source_files(dependency, ["ggml", "LICENSE", "AUTHORS"]))
     version = os.fsdecode(git(REPO_ROOT, "describe", "--always", "--dirty")).strip()
     commit = os.fsdecode(git(REPO_ROOT, "rev-parse", "HEAD")).strip()
     dependency_commit = os.fsdecode(git(dependency, "rev-parse", "HEAD")).strip()
+    contents = (
+        "Server and CLI sources are included. Web UI, models, build outputs and Git metadata are excluded."
+        if with_runners else
+        "Examples, Web UI, models, build outputs and Git metadata are excluded."
+    )
+    build_flags = (
+        "-DSD_BUILD_EXAMPLES=ON -DSD_SERVER_BUILD_FRONTEND=OFF -DSD_WEBP=OFF -DSD_WEBM=OFF"
+        if with_runners else "-DSD_BUILD_EXAMPLES=OFF -DSD_WEBP=OFF -DSD_WEBM=OFF"
+    )
     instructions = f"""stable-diffusion.cpp source archive
 Version: {version}
 Commit: {commit}
 llama.cpp-sm_61 commit: {dependency_commit}
 
 Contains tracked working-tree sources, including local modifications.
-Examples, Web UI, models, build outputs and Git metadata are excluded.
+{contents}
 The bundled GGML is thirdparty/llama.cpp/ggml; no submodule download is needed.
 
-CPU library build (requires CMake and a C/C++ compiler):
-  cmake -S . -B build -DSD_BUILD_EXAMPLES=OFF -DSD_WEBP=OFF -DSD_WEBM=OFF
+CPU build (requires CMake and a C/C++ compiler):
+  cmake -S . -B build {build_flags}
   cmake --build build --parallel
 
 For CUDA/sm_61, add -DSD_CUDA=ON to the configure command (requires CUDA Toolkit).
@@ -112,12 +125,16 @@ For a shared library, add -DSD_BUILD_SHARED_LIBS=ON.
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--with-runners", action="store_true",
+        help="include sd-server and sd-cli sources, without the server Web UI",
+    )
+    parser.add_argument(
         "--output-dir", type=Path, default=REPO_ROOT,
         help="archive output directory (default: repository root)",
     )
     args = parser.parse_args()
     try:
-        print(package_sources(args.output_dir.resolve()))
+        print(package_sources(args.output_dir.resolve(), with_runners=args.with_runners))
     except (OSError, RuntimeError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"Error: {error}\n")
 
