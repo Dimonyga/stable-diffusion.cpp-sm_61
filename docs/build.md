@@ -21,6 +21,41 @@ git pull origin master
 git submodule update --init --recursive
 ```
 
+## Source archive for a library-only host build
+
+With Python 3.9+ and Git installed, run from the repository root:
+
+```shell
+python3 scripts/package_sources.py
+```
+
+The script writes `stable-diffusion.cpp-YYYYMMDDHHmm.tar.gz` to the repository
+root. Use `--output-dir /path/to/output` to choose another directory. It refuses
+to overwrite an existing archive with the same name.
+
+The archive contains tracked working-tree sources (including local changes),
+CMake files, licenses, vendored dependencies and the GGML sources from the
+initialized `thirdparty/llama.cpp` submodule. It excludes examples (including
+CLI and server), Web UI, unused submodules, models, Git metadata and build
+outputs. Untracked files are not included. If needed, initialize the required
+dependency before packaging:
+
+```shell
+git submodule update --init thirdparty/llama.cpp
+```
+
+Extract on the build host and build the library without downloading submodules:
+
+```shell
+tar -xzf stable-diffusion.cpp-YYYYMMDDHHmm.tar.gz
+cd stable-diffusion.cpp
+cmake -S . -B build -DSD_BUILD_EXAMPLES=OFF -DSD_WEBP=OFF -DSD_WEBM=OFF
+cmake --build build --parallel
+```
+
+Add `-DSD_CUDA=ON` for CUDA/sm_61, or `-DSD_BUILD_SHARED_LIBS=ON` for a shared
+library. The archive also includes these instructions in `BUILD.txt`.
+
 ## Selecting a GGML source tree
 
 By default, this fork builds the patched GGML from

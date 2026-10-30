@@ -1,4 +1,5 @@
 build*/
+/stable-diffusion.cpp-*.tar.gz
 cmake-build-*/
 test/
 tests/
