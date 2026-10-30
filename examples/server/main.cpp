@@ -1,3 +1,4 @@
+#include <csignal>
 #include <cstdlib>
 #include <iostream>
 #include <mutex>
@@ -68,6 +69,15 @@ static void parse_args(int argc,
     }
 }
 
+// SIGINT/SIGTERM only stop the HTTP server; the imatrix is saved by main() once everything is idle,
+// which is safer than writing a multi-megabyte file from inside a signal handler.
+static httplib::Server* g_server = nullptr;
+static void stop_server_handler(int) {
+    if (g_server != nullptr) {
+        g_server->stop();
+    }
+}
+
 void sd_log_cb(enum sd_log_level_t level, const char* log, void* data) {
     SDSvrParams* svr_params = (SDSvrParams*)data;
     log_print(level, log, svr_params->log_level, svr_params->color);
@@ -92,6 +102,12 @@ int main(int argc, const char** argv) {
     LOG_DEBUG("%s", svr_params.to_string().c_str());
     LOG_DEBUG("%s", ctx_params.to_string().c_str());
     LOG_DEBUG("%s", default_gen_params.to_string().c_str());
+
+    // Collection must be on before the first context is created.
+    if (!svr_params.imatrix_out.empty()) {
+        enable_imatrix_collection_ext(svr_params.imatrix_out.c_str(), svr_params.imatrix_save_freq);
+        LOG_INFO("collecting imatrix into '%s'", svr_params.imatrix_out.c_str());
+    }
 
     sd_ctx_params_t sd_ctx_params = ctx_params.to_sd_ctx_params_t();
     ServerModels models;
@@ -167,8 +183,15 @@ int main(int argc, const char** argv) {
     register_sdcpp_api_endpoints(svr, runtime);
     register_model_endpoints(svr, runtime);
 
+    if (!svr_params.imatrix_out.empty()) {
+        g_server = &svr;
+        std::signal(SIGINT, stop_server_handler);
+        std::signal(SIGTERM, stop_server_handler);
+    }
+
     LOG_INFO("listening on: http://%s:%d\n", svr_params.listen_ip.c_str(), svr_params.listen_port);
     svr.listen(svr_params.listen_ip, svr_params.listen_port);
+    g_server = nullptr;
 
     {
         std::lock_guard<std::mutex> lock(async_job_manager.mutex);
@@ -176,5 +199,10 @@ int main(int argc, const char** argv) {
     }
     async_job_manager.cv.notify_all();
     async_worker.join();
+
+    if (!svr_params.imatrix_out.empty()) {
+        LOG_INFO("saving imatrix to '%s'", svr_params.imatrix_out.c_str());
+        save_imatrix(svr_params.imatrix_out.c_str());
+    }
     return 0;
 }
