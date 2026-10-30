@@ -61,7 +61,7 @@ def archive_metadata(info):
     return info
 
 
-def package_sources(output_dir, with_runners=False):
+def package_sources(output_dir, with_runners=True):
     dependency = REPO_ROOT / "thirdparty/llama.cpp"
     paths = ["CMakeLists.txt", "LICENSE", "cmake", "include", "src", "thirdparty"]
     if with_runners:
@@ -125,8 +125,12 @@ For a shared library, add -DSD_BUILD_SHARED_LIBS=ON.
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--with-runners", action="store_true",
-        help="include sd-server and sd-cli sources, without the server Web UI",
+        "--with-runners", dest="with_runners", action="store_true", default=True,
+        help="include sd-server and sd-cli sources, without the server Web UI (default: enabled)",
+    )
+    parser.add_argument(
+        "--without-runners", dest="with_runners", action="store_false",
+        help="exclude sd-server and sd-cli sources",
     )
     parser.add_argument(
         "--output-dir", type=Path, default=REPO_ROOT,
