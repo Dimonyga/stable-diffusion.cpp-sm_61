@@ -41,6 +41,9 @@ const char* sd_type_name(enum sd_type_t type) {
 }
 
 enum sd_type_t str_to_sd_type(const char* str) {
+    if (!strcmp(str, "int8")) {
+        str = "i8";
+    }
     if (!strcmp(str, "f8_e4m3")) {
         return SD_TYPE_F8_E4M3;
     }

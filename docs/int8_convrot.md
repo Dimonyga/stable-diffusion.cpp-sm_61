@@ -89,7 +89,7 @@ The packed runtime activation tensor contains the I8 activation rows and their f
 ## Backend support
 
 - CPU provides the portable regular Hadamard, activation quantization, INT8 matrix multiplication, and scale restoration implementations.
-- NVIDIA CUDA devices with compute capability 7.5 or newer use the native accelerated path. For H256, CUDA fuses the rotation, row-wise maximum reduction, and activation quantization. It uses cuBLAS for I8 x I8 to I32 GEMM and a CUDA kernel for scale restoration and bias addition.
+- NVIDIA CUDA devices with compute capability 7.5 or newer, and dp4a-capable Pascal devices (compute capability 6.1) in the bundled GGML, use the native accelerated path. For H256, CUDA fuses the rotation, row-wise maximum reduction, and activation quantization. It uses cuBLAS for I8 x I8 to I32 GEMM and a CUDA kernel for scale restoration and bias addition.
 - AMD HIP devices in the CDNA, RDNA3 (including RDNA3.5), and RDNA4 families use the same INT8/H256 kernels with hipBLAS for I8 x I8 to I32 GEMM. Other AMD architectures fall back to CPU for INT8 matrix multiplication.
 - Vulkan provides native H256 activation quantization and INT8 matrix multiplication when the build and device support accelerated packed INT8 dot products. Unsupported configurations and GPU backends without these kernels use the backend scheduler to fall back to CPU.
 
@@ -104,3 +104,17 @@ ComfyUI INT8 convrot safetensors can be passed to `--diffusion-model` without co
 ```powershell
 .\bin\Release\sd-cli.exe --diffusion-model ..\models\diffusion_models\krea2_turbo_int8_convrot.safetensors --llm ..\models\text_encoders\Qwen3-VL-4B-Instruct-Q4_K_M.gguf --vae ..\models\vae\wan_2.1_vae.safetensors -p "a lovely cat holding a sign says 'krea2.cpp'" --steps 8 --cfg-scale 1 -v --offload-to-cpu
 ```
+
+## GGUF
+
+INT8 tensorwise files can be converted to GGUF (`-M convert -o model.gguf`) without losing their INT8 settings. The module list and each module's convrot group size are stored as the GGUF metadata keys `sdcpp.int8_tensorwise.modules` and `sdcpp.int8_tensorwise.convrot_groupsize`, and are restored when the file is loaded. GGUF files converted before this metadata existed lost the settings and do not load correctly.
+
+## Creating INT8 files from BF16/F16/F32
+
+`-M convert` can quantize float linear weights to INT8 tensorwise. Select the tensors with `--tensor-type-rules` (or every eligible weight with `--type int8`) and the type name `int8`:
+
+```sh
+sd-cli -M convert -m z_image_turbo_bf16.safetensors -o z_image_turbo_int8.safetensors --tensor-type-rules "diffusion_model\.layers\.=int8"
+```
+
+Each selected two-dimensional `.weight` tensor is stored as I8 with a per-output-row F32 `.weight_scale`. When the input width is a multiple of 256 the weight is rotated with the H256 convrot transform before quantization (convrot group size 256); otherwise it is quantized without rotation. Embeddings, norms, biases, convolutions and the tensors that the other quantized types skip are left untouched, and the rules are matched against the full tensor name, so scope them to the layers whose runtime supports INT8. Merging LoRAs into the converted model is not supported together with INT8 quantization.

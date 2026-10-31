@@ -529,7 +529,7 @@ ArgOptions SDContextParams::get_options() {
          &hires_upscalers_dir},
         {"",
          "--tensor-type-rules",
-         "weight type per tensor pattern (example: \"^vae\\.=f16,model\\.=q8_0\")",
+         "weight type per tensor pattern (example: \"^vae\\.=f16,model\\.=q8_0\"); in convert mode \"int8\" makes INT8 tensorwise/convrot weights",
          (int)',',
          &tensor_type_rules},
         {"",

@@ -24,8 +24,11 @@
 #include "runtime/imatrix.h"
 
 struct TensorExportInfo {
-    TensorStorage storage;
+    TensorStorage storage;  // source tensor
     ggml_type type;
+    bool int8_quant    = false;  // quantize a float weight to ComfyUI-style INT8 tensorwise
+    bool int8_scale    = false;  // the matching `.weight_scale` tensor of an int8_quant entry
+    int int8_group_size = 0;     // convrot group size, 0 = no rotation
 };
 
 struct TensorExportJob {
@@ -35,27 +38,101 @@ struct TensorExportJob {
     bool success = false;
 };
 
-static ggml_type get_export_tensor_type(ModelLoader& model_loader,
-                                        const TensorStorage& tensor_storage,
-                                        ggml_type type,
-                                        const TensorTypeRules& tensor_type_rules) {
-    const std::string& name = tensor_storage.name;
-    ggml_type tensor_type   = tensor_storage.type;
-    ggml_type dst_type      = type;
-
+static ggml_type get_requested_export_type(const TensorStorage& tensor_storage,
+                                           ggml_type type,
+                                           const TensorTypeRules& tensor_type_rules) {
+    ggml_type dst_type = type;
     for (const auto& tensor_type_rule : tensor_type_rules) {
         std::regex pattern(tensor_type_rule.first);
-        if (std::regex_search(name, pattern)) {
+        if (std::regex_search(tensor_storage.name, pattern)) {
             dst_type = tensor_type_rule.second;
             break;
         }
     }
+    return dst_type;
+}
+
+static ggml_type get_export_tensor_type(ModelLoader& model_loader,
+                                        const TensorStorage& tensor_storage,
+                                        ggml_type type,
+                                        const TensorTypeRules& tensor_type_rules) {
+    ggml_type tensor_type = tensor_storage.type;
+    ggml_type dst_type    = get_requested_export_type(tensor_storage, type, tensor_type_rules);
 
     if (model_loader.tensor_should_be_converted(tensor_storage, dst_type)) {
         tensor_type = dst_type;
     }
 
     return tensor_type;
+}
+
+static constexpr int INT8_CONVROT_GROUP_SIZE = 256;
+
+// ComfyUI int8_tensorwise: an I8 `weight` (rows = output features) plus one F32 scale per row. The input
+// features are rotated per 256-wide group (the normalized Kronecker power of H4, as in the convrot kernels).
+static bool is_int8_quantizable(ModelLoader& model_loader, const TensorStorage& storage) {
+    if (storage.is_int8_tensorwise || storage.n_dims != 2 || storage.ne[0] % 4 != 0 || !ends_with(storage.name, ".weight")) {
+        return false;
+    }
+    if (storage.type != GGML_TYPE_F32 && storage.type != GGML_TYPE_F16 && storage.type != GGML_TYPE_BF16) {
+        return false;
+    }
+    return model_loader.tensor_should_be_converted(storage, GGML_TYPE_F16);
+}
+
+static void int8_convrot_quantize(const float* src, int64_t k, int64_t rows, int group_size, int8_t* q_out, float* scale_out) {
+    const float transform_scale = group_size > 0 ? 1.0f / sqrtf((float)group_size) : 1.0f;
+    const int group             = group_size > 0 ? group_size : (int)k;
+    std::vector<float> values(std::max(group, 1));
+    auto rotate = [&](const float* row, int64_t offset) {
+        for (int i = 0; i < group; i++) {
+            values[i] = row[offset + i] * transform_scale;
+        }
+        if (group_size > 0) {
+            for (int stride = 1; stride < group; stride *= 4) {
+                for (int base = 0; base < group; base += 4 * stride) {
+                    for (int j = 0; j < stride; ++j) {
+                        const int i0  = base + j;
+                        const int i1  = i0 + stride;
+                        const int i2  = i1 + stride;
+                        const int i3  = i2 + stride;
+                        const float a = values[i0];
+                        const float b = values[i1];
+                        const float c = values[i2];
+                        const float d = values[i3];
+                        values[i0]    = a + b + c - d;
+                        values[i1]    = a + b - c + d;
+                        values[i2]    = a - b + c + d;
+                        values[i3]    = -a + b + c + d;
+                    }
+                }
+            }
+        }
+    };
+    for (int64_t r = 0; r < rows; r++) {
+        const float* row = src + r * k;
+        float amax       = 0.0f;
+        for (int64_t offset = 0; offset < k; offset += group) {
+            rotate(row, offset);
+            for (int i = 0; i < group; i++) {
+                amax = std::max(amax, fabsf(values[i]));
+            }
+        }
+        const float row_scale = amax / 127.0f;
+        scale_out != nullptr ? (void)(scale_out[r] = row_scale) : (void)0;
+        if (q_out == nullptr) {
+            continue;
+        }
+        const float inv_scale = row_scale == 0.0f ? 0.0f : 1.0f / row_scale;
+        for (int64_t offset = 0; offset < k; offset += group) {
+            rotate(row, offset);
+            for (int i = 0; i < group; i++) {
+                int value = row_scale == 0.0f ? 0 : (int)lrintf(values[i] * inv_scale);
+                value     = std::max(-127, std::min(127, value));
+                q_out[r * k + offset + i] = (int8_t)value;
+            }
+        }
+    }
 }
 
 static bool collect_tensors_for_export(ModelLoader& model_loader,
@@ -69,6 +146,19 @@ static bool collect_tensors_for_export(ModelLoader& model_loader,
         TensorExportInfo info;
         info.storage = tensor_storage;
         info.type    = get_export_tensor_type(model_loader, tensor_storage, type, tensor_type_rules);
+        if (get_requested_export_type(tensor_storage, type, tensor_type_rules) == GGML_TYPE_I8 &&
+            is_int8_quantizable(model_loader, tensor_storage)) {
+            info.type           = GGML_TYPE_I8;
+            info.int8_quant     = true;
+            info.int8_group_size = tensor_storage.ne[0] % INT8_CONVROT_GROUP_SIZE == 0 ? INT8_CONVROT_GROUP_SIZE : 0;
+            TensorExportInfo scale_info = info;
+            scale_info.type             = GGML_TYPE_F32;
+            scale_info.int8_quant       = false;
+            scale_info.int8_scale       = true;
+            tensors.push_back(info);
+            tensors.push_back(std::move(scale_info));
+            continue;
+        }
         tensors.push_back(std::move(info));
     }
     LOG_INFO("collected %zu tensors for export", tensors.size());
@@ -76,6 +166,9 @@ static bool collect_tensors_for_export(ModelLoader& model_loader,
 }
 
 static size_t export_tensor_nbytes(const TensorExportInfo& info) {
+    if (info.int8_scale) {
+        return static_cast<size_t>(info.storage.nelements() / info.storage.ne[0]) * sizeof(float);
+    }
     TensorStorage output_storage = info.storage;
     output_storage.type          = info.type;
     return static_cast<size_t>(output_storage.nbytes());
@@ -89,7 +182,19 @@ static TensorWritePlan tensor_write_plan_from_export_info(const TensorExportInfo
     for (int i = 0; i < SD_MAX_DIMS; i++) {
         plan.ne[i] = info.storage.ne[i];
     }
-    if (info.storage.is_int8_tensorwise && info.type == GGML_TYPE_I8) {
+    if (info.int8_scale) {
+        plan.n_dims = 1;
+        plan.ne[0]  = info.storage.nelements() / info.storage.ne[0];
+        for (int i = 1; i < SD_MAX_DIMS; i++) {
+            plan.ne[i] = 1;
+        }
+        plan.name = name.substr(0, name.size() - std::string(".weight").size()) + ".weight_scale";
+    }
+    if (info.int8_quant) {
+        plan.int8_tensorwise         = true;
+        plan.int8_convrot            = info.int8_group_size > 0;
+        plan.int8_convrot_group_size = info.int8_group_size;
+    } else if (info.storage.is_int8_tensorwise && info.type == GGML_TYPE_I8) {
         plan.int8_tensorwise          = true;
         plan.int8_convrot             = info.storage.int8_convrot;
         plan.int8_convrot_group_size = info.storage.int8_convrot_group_size;
@@ -136,7 +241,37 @@ static bool preallocate_output_file(const std::string& output_path, uint64_t fil
     return true;
 }
 
+static bool quantize_tensor_to_int8_for_export(ModelLoader& model_loader, TensorExportJob& job) {
+    const TensorStorage& storage = job.info.storage;
+    const int64_t k              = storage.ne[0];
+    const int64_t rows           = storage.nelements() / k;
+
+    ggml_context* ggml_ctx = ggml_init({static_cast<size_t>(storage.nelements()) * sizeof(float) + 1024 * 1024, nullptr, false});
+    if (ggml_ctx == nullptr) {
+        job.error = "ggml_init failed for tensor '" + storage.name + "'";
+        return false;
+    }
+    ggml_tensor* tensor = ggml_new_tensor(ggml_ctx, GGML_TYPE_F32, storage.n_dims, storage.ne);
+    ggml_set_name(tensor, storage.name.c_str());
+    if (tensor == nullptr || !model_loader.load_tensor(storage, tensor)) {
+        ggml_free(ggml_ctx);
+        job.error = "failed to load tensor '" + storage.name + "'";
+        return false;
+    }
+    job.data.resize(export_tensor_nbytes(job.info));
+    if (job.info.int8_scale) {
+        int8_convrot_quantize((const float*)tensor->data, k, rows, job.info.int8_group_size, nullptr, (float*)job.data.data());
+    } else {
+        int8_convrot_quantize((const float*)tensor->data, k, rows, job.info.int8_group_size, (int8_t*)job.data.data(), nullptr);
+    }
+    ggml_free(ggml_ctx);
+    return true;
+}
+
 static bool load_tensor_for_export(ModelLoader& model_loader, TensorExportJob& job) {
+    if (job.info.int8_quant || job.info.int8_scale) {
+        return quantize_tensor_to_int8_for_export(model_loader, job);
+    }
     size_t mem_size = 1 * 1024 * 1024;
     mem_size += ggml_tensor_overhead();
     TensorStorage output_storage = job.info.storage;
@@ -381,6 +516,11 @@ static bool export_loaded_model(ModelLoader& model_loader,
     std::vector<TensorExportInfo> tensors;
     bool success = collect_tensors_for_export(model_loader, type, type_rules, tensors);
     std::string error;
+    if (success && mem != nullptr &&
+        std::any_of(tensors.begin(), tensors.end(), [](const TensorExportInfo& info) { return info.int8_quant; })) {
+        LOG_ERROR("INT8 tensorwise quantization cannot be combined with merging LoRAs into the converted model");
+        success = false;
+    }
     if (success) {
         std::unique_ptr<StreamingModelWriter> writer;
         if (output_is_safetensors) {

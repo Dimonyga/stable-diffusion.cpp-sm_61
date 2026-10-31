@@ -832,6 +832,9 @@ TensorTypeRules parse_tensor_type_rules(const std::string& tensor_type_rules) {
 
         if (type_name == "f32") {
             tensor_type = GGML_TYPE_F32;
+        } else if (type_name == "int8" || type_name == "i8") {
+            // INT8 tensorwise/convrot, only produced by the convert mode
+            tensor_type = GGML_TYPE_I8;
         } else {
             for (size_t i = 0; i < GGML_TYPE_COUNT; i++) {
                 auto trait = ggml_get_type_traits((ggml_type)i);
@@ -1629,6 +1632,9 @@ bool ModelLoader::load_tensors(std::map<std::string, ggml_tensor*>& tensors,
 bool ModelLoader::tensor_should_be_converted(const TensorStorage& tensor_storage, ggml_type type) const {
     const std::string& name = tensor_storage.name;
     if (tensor_storage.is_int8_tensorwise) {
+        return false;
+    }
+    if (type == GGML_TYPE_I8) {
         return false;
     }
     if (type != GGML_TYPE_COUNT) {
