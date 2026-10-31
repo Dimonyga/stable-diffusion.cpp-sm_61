@@ -159,7 +159,9 @@ protected:
         int8_convrot            = false;
         int8_convrot_group_size = 0;
         enum ggml_type wtype    = get_type(prefix + "weight", tensor_storage_map, GGML_TYPE_F32);
-        if (in_features % ggml_blck_size(wtype) != 0 || force_f32) {
+        auto weight_storage     = tensor_storage_map.find(prefix + "weight");
+        const bool is_int8_tensorwise = weight_storage != tensor_storage_map.end() && weight_storage->second.is_int8_tensorwise;
+        if (in_features % ggml_blck_size(wtype) != 0 || (force_f32 && !is_int8_tensorwise)) {
             wtype = GGML_TYPE_F32;
         }
         params["weight"] = ggml_new_tensor_2d(ctx, wtype, in_features, out_features);
@@ -167,8 +169,6 @@ protected:
             enum ggml_type wtype = GGML_TYPE_F32;
             params["bias"]       = ggml_new_tensor_1d(ctx, wtype, out_features);
         }
-        auto weight_storage           = tensor_storage_map.find(prefix + "weight");
-        const bool is_int8_tensorwise = weight_storage != tensor_storage_map.end() && weight_storage->second.is_int8_tensorwise;
         auto weight_scale_storage     = tensor_storage_map.find(prefix + "weight_scale");
         if (weight_scale_storage != tensor_storage_map.end()) {
             const int64_t scale_nelements = weight_scale_storage->second.nelements();
