@@ -89,6 +89,11 @@ static TensorWritePlan tensor_write_plan_from_export_info(const TensorExportInfo
     for (int i = 0; i < SD_MAX_DIMS; i++) {
         plan.ne[i] = info.storage.ne[i];
     }
+    if (info.storage.is_int8_tensorwise && info.type == GGML_TYPE_I8) {
+        plan.int8_tensorwise          = true;
+        plan.int8_convrot             = info.storage.int8_convrot;
+        plan.int8_convrot_group_size = info.storage.int8_convrot_group_size;
+    }
     return plan;
 }
 

@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <ostream>
 #include <string>
 #include <vector>
@@ -18,6 +19,11 @@ static void set_error(std::string* error, const std::string& message) {
         *error = message;
     }
 }
+
+// ComfyUI keeps the INT8 tensorwise/convrot settings in per-module `.comfy_quant` tensors, which GGUF does
+// not carry, so they are stored as parallel key/value arrays: module names and their convrot group size.
+static constexpr const char* GGUF_KEY_INT8_MODULES    = "sdcpp.int8_tensorwise.modules";
+static constexpr const char* GGUF_KEY_INT8_CONVROT_GS = "sdcpp.int8_tensorwise.convrot_groupsize";
 
 bool is_gguf_file(const std::string& file_path) {
     std::ifstream file(std::filesystem::u8path(file_path), std::ios::binary);
@@ -90,6 +96,32 @@ bool read_gguf_file(const std::string& file_path,
 
     int n_tensors = static_cast<int>(gguf_get_n_tensors(ctx_gguf_));
 
+    std::map<std::string, int32_t> int8_modules;
+    const int64_t modules_key = gguf_find_key(ctx_gguf_, GGUF_KEY_INT8_MODULES);
+    const int64_t groups_key  = gguf_find_key(ctx_gguf_, GGUF_KEY_INT8_CONVROT_GS);
+    if (modules_key >= 0 && groups_key >= 0) {
+        const size_t n_modules = gguf_get_arr_n(ctx_gguf_, modules_key);
+        if (n_modules != gguf_get_arr_n(ctx_gguf_, groups_key) ||
+            gguf_get_arr_type(ctx_gguf_, groups_key) != GGUF_TYPE_INT32) {
+            gguf_free(ctx_gguf_);
+            ggml_free(ctx_meta_);
+            set_error(error, "invalid INT8 tensorwise metadata in '" + file_path + "'");
+            return false;
+        }
+        const int32_t* groups = static_cast<const int32_t*>(gguf_get_arr_data(ctx_gguf_, groups_key));
+        for (size_t i = 0; i < n_modules; i++) {
+            int8_modules.emplace(gguf_get_arr_str(ctx_gguf_, modules_key, i), groups[i]);
+        }
+#ifdef SD_USE_UPSTREAM_GGML
+        if (!int8_modules.empty()) {
+            gguf_free(ctx_gguf_);
+            ggml_free(ctx_meta_);
+            set_error(error, "INT8 tensorwise/convrot is not supported by this ggml build ('" + file_path + "')");
+            return false;
+        }
+#endif
+    }
+
     size_t data_offset = gguf_get_data_offset(ctx_gguf_);
     for (int i = 0; i < n_tensors; i++) {
         std::string name   = gguf_get_tensor_name(ctx_gguf_, i);
@@ -97,6 +129,15 @@ bool read_gguf_file(const std::string& file_path,
         size_t offset      = data_offset + gguf_get_tensor_offset(ctx_gguf_, i);
 
         TensorStorage tensor_storage(name, dummy->type, dummy->ne, ggml_n_dims(dummy), 0, offset);
+
+        if (dummy->type == GGML_TYPE_I8 && ends_with(name, ".weight")) {
+            auto int8_module = int8_modules.find(name.substr(0, name.size() - std::string(".weight").size()));
+            if (int8_module != int8_modules.end()) {
+                tensor_storage.is_int8_tensorwise      = true;
+                tensor_storage.int8_convrot            = int8_module->second > 0;
+                tensor_storage.int8_convrot_group_size = int8_module->second;
+            }
+        }
 
         if (ggml_nbytes(dummy) != tensor_storage.nbytes()) {
             gguf_free(ctx_gguf_);
@@ -176,6 +217,24 @@ bool GGUFStreamingWriter::write_metadata(const std::string& file_path,
         }
         ggml_set_name(tensor, plan.name.c_str());
         gguf_add_tensor(gguf_ctx_, tensor);
+    }
+
+    std::vector<std::string> int8_modules;
+    std::vector<int32_t> int8_groups;
+    for (const TensorWritePlan& plan : tensors) {
+        if (plan.int8_tensorwise && ends_with(plan.name, ".weight")) {
+            int8_modules.push_back(plan.name.substr(0, plan.name.size() - std::string(".weight").size()));
+            int8_groups.push_back(plan.int8_convrot ? plan.int8_convrot_group_size : 0);
+        }
+    }
+    if (!int8_modules.empty()) {
+        std::vector<const char*> module_ptrs;
+        module_ptrs.reserve(int8_modules.size());
+        for (const std::string& module : int8_modules) {
+            module_ptrs.push_back(module.c_str());
+        }
+        gguf_set_arr_str(gguf_ctx_, GGUF_KEY_INT8_MODULES, module_ptrs.data(), module_ptrs.size());
+        gguf_set_arr_data(gguf_ctx_, GGUF_KEY_INT8_CONVROT_GS, GGUF_TYPE_INT32, int8_groups.data(), int8_groups.size());
     }
 
     LOG_INFO("trying to save tensors to %s", file_path.c_str());

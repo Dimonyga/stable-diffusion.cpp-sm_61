@@ -140,6 +140,10 @@ struct TensorWritePlan {
     int64_t ne[SD_MAX_DIMS] = {1, 1, 1, 1, 1};
     int n_dims              = 0;
 
+    bool int8_tensorwise         = false;
+    bool int8_convrot            = false;
+    int int8_convrot_group_size  = 0;
+
     int64_t nelements() const {
         int64_t n = 1;
         for (int i = 0; i < SD_MAX_DIMS; i++) {
