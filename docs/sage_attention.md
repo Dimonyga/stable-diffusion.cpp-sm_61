@@ -1,5 +1,10 @@
 # SageAttention
 
+> **sm_61 fork:** the SageAttention and Sol-Attn CUDA kernels are removed from the bundled
+> `thirdparty/llama.cpp` ggml (they need SM80+ tensor cores). `--sage-attn` reports
+> "SageAttention is unavailable" and does nothing on this fork. The text below describes the
+> upstream implementation.
+
 `--sage-attn` enables native CUDA SageAttention in the diffusion model, including
 the high-noise diffusion model when present. Python, PyTorch, and Triton are not
 required at build time or runtime.
