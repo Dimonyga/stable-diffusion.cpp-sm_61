@@ -648,9 +648,7 @@ SD_API bool preprocess_canny(sd_image_t image,
 SD_API bool load_imatrix(const char* imatrix_path);
 SD_API void save_imatrix(const char* imatrix_path);
 SD_API void enable_imatrix_collection(void);
-SD_API void enable_imatrix_collection_ext(const char* out_path, int save_frequency);
 SD_API void disable_imatrix_collection(void);
-SD_API void flush_imatrix(void);
 
 SD_API const char* sd_commit(void);
 SD_API const char* sd_version(void);

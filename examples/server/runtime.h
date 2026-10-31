@@ -28,10 +28,6 @@ struct SDSvrParams {
     sd_log_level_t log_level = SD_LOG_INFO;
     bool color               = false;
 
-    // Activation statistics of everything this server generates (an imatrix for self-made quants).
-    std::string imatrix_out;
-    int imatrix_save_freq = 0;
-
     ArgOptions get_options();
     bool validate();
     bool resolve_and_validate();

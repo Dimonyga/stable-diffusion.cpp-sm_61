@@ -347,12 +347,10 @@ ArgOptions SDSvrParams::get_options() {
     options.string_options = {
         {"-l", "--listen-ip", "server listen ip (default: 127.0.0.1)", 0, &listen_ip},
         {"", "--serve-html-path", "path to HTML file to serve at root (optional)", 0, &serve_html_path},
-        {"", "--imat-out", "collect an imatrix from everything this server generates and save it to the provided path (also on SIGINT/SIGTERM)", 0, &imatrix_out},
     };
 
     options.int_options = {
         {"", "--listen-port", "server listen port (default: 1234)", &listen_port},
-        {"", "--imat-freq", "frequency of periodic imatrix saving in denoising steps (default: 0, save on exit only)", &imatrix_save_freq},
     };
 
     options.bool_options = {
@@ -394,10 +392,6 @@ bool SDSvrParams::validate() {
         LOG_ERROR("error: serve_html_path file does not exist: %s", serve_html_path.c_str());
         return false;
     }
-    if (imatrix_save_freq < 0) {
-        LOG_ERROR("error: imat-freq should not be negative");
-        return false;
-    }
     return true;
 }
 
@@ -415,7 +409,6 @@ std::string SDSvrParams::to_string() const {
         << "  listen_ip: " << listen_ip << ",\n"
         << "  listen_port: \"" << listen_port << "\",\n"
         << "  serve_html_path: \"" << serve_html_path << "\",\n"
-        << "  imatrix_out: \"" << imatrix_out << "\",\n"
         << "}";
     return oss.str();
 }
