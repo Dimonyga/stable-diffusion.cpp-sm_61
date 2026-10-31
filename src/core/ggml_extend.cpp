@@ -720,6 +720,9 @@ ggml_tensor* ggml_ext_attention_ext(ggml_context* ctx,
             return nullptr;
         }
         ggml_prec_set_acc(out, GGML_PREC_F32);
+#ifndef SD_USE_UPSTREAM_GGML
+        ggml_flash_attn_ext_set_approx(out, true);
+#endif
         if (kv_scale != 1.0f) {
             out = ggml_ext_scale(ctx, out, 1.0f / kv_scale);
         }
