@@ -28,6 +28,7 @@ struct TensorExportInfo {
     ggml_type type;
     bool int8_quant    = false;  // quantize a float weight to ComfyUI-style INT8 tensorwise
     bool int8_scale    = false;  // the matching `.weight_scale` tensor of an int8_quant entry
+    bool int8_meta     = false;  // the matching ComfyUI `.comfy_quant` JSON tensor (safetensors output)
     int int8_group_size = 0;     // convrot group size, 0 = no rotation
 };
 
@@ -67,6 +68,11 @@ static ggml_type get_export_tensor_type(ModelLoader& model_loader,
 }
 
 static constexpr int INT8_CONVROT_GROUP_SIZE = 256;
+
+static std::string int8_comfy_quant_json(int group_size) {
+    return group_size > 0 ? "{\"format\": \"int8_tensorwise\", \"convrot\": true, \"convrot_groupsize\": " + std::to_string(group_size) + "}"
+                          : std::string("{\"format\": \"int8_tensorwise\", \"convrot\": false}");
+}
 
 // ComfyUI int8_tensorwise: an I8 `weight` (rows = output features) plus one F32 scale per row. The input
 // features are rotated per 256-wide group (the normalized Kronecker power of H4, as in the convrot kernels).
@@ -138,7 +144,8 @@ static void int8_convrot_quantize(const float* src, int64_t k, int64_t rows, int
 static bool collect_tensors_for_export(ModelLoader& model_loader,
                                        ggml_type type,
                                        const TensorTypeRules& tensor_type_rules,
-                                       std::vector<TensorExportInfo>& tensors) {
+                                       std::vector<TensorExportInfo>& tensors,
+                                       bool emit_comfy_quant) {
     tensors.clear();
     tensors.reserve(model_loader.get_tensor_storage_map().size());
     for (const auto& kv : model_loader.get_tensor_storage_map()) {
@@ -157,6 +164,13 @@ static bool collect_tensors_for_export(ModelLoader& model_loader,
             scale_info.int8_scale       = true;
             tensors.push_back(info);
             tensors.push_back(std::move(scale_info));
+            if (emit_comfy_quant) {
+                TensorExportInfo meta_info = info;
+                meta_info.type             = GGML_TYPE_I8;
+                meta_info.int8_quant       = false;
+                meta_info.int8_meta        = true;
+                tensors.push_back(std::move(meta_info));
+            }
             continue;
         }
         tensors.push_back(std::move(info));
@@ -168,6 +182,9 @@ static bool collect_tensors_for_export(ModelLoader& model_loader,
 static size_t export_tensor_nbytes(const TensorExportInfo& info) {
     if (info.int8_scale) {
         return static_cast<size_t>(info.storage.nelements() / info.storage.ne[0]) * sizeof(float);
+    }
+    if (info.int8_meta) {
+        return int8_comfy_quant_json(info.int8_group_size).size();
     }
     TensorStorage output_storage = info.storage;
     output_storage.type          = info.type;
@@ -181,6 +198,15 @@ static TensorWritePlan tensor_write_plan_from_export_info(const TensorExportInfo
     plan.n_dims = info.storage.n_dims;
     for (int i = 0; i < SD_MAX_DIMS; i++) {
         plan.ne[i] = info.storage.ne[i];
+    }
+    if (info.int8_meta) {
+        plan.n_dims = 1;
+        plan.ne[0]  = int8_comfy_quant_json(info.int8_group_size).size();
+        for (int i = 1; i < SD_MAX_DIMS; i++) {
+            plan.ne[i] = 1;
+        }
+        plan.u8   = true;
+        plan.name = name.substr(0, name.size() - std::string(".weight").size()) + ".comfy_quant";
     }
     if (info.int8_scale) {
         plan.n_dims = 1;
@@ -269,6 +295,11 @@ static bool quantize_tensor_to_int8_for_export(ModelLoader& model_loader, Tensor
 }
 
 static bool load_tensor_for_export(ModelLoader& model_loader, TensorExportJob& job) {
+    if (job.info.int8_meta) {
+        const std::string json = int8_comfy_quant_json(job.info.int8_group_size);
+        job.data.assign(json.begin(), json.end());
+        return true;
+    }
     if (job.info.int8_quant || job.info.int8_scale) {
         return quantize_tensor_to_int8_for_export(model_loader, job);
     }
@@ -514,7 +545,7 @@ static bool export_loaded_model(ModelLoader& model_loader,
     TensorTypeRules type_rules = parse_tensor_type_rules(tensor_type_rules);
 
     std::vector<TensorExportInfo> tensors;
-    bool success = collect_tensors_for_export(model_loader, type, type_rules, tensors);
+    bool success = collect_tensors_for_export(model_loader, type, type_rules, tensors, output_is_safetensors);
     std::string error;
     if (success && mem != nullptr &&
         std::any_of(tensors.begin(), tensors.end(), [](const TensorExportInfo& info) { return info.int8_quant; })) {

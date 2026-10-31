@@ -140,6 +140,7 @@ struct TensorWritePlan {
     int64_t ne[SD_MAX_DIMS] = {1, 1, 1, 1, 1};
     int n_dims              = 0;
 
+    bool u8                      = false;  // raw bytes written as a safetensors U8 tensor
     bool int8_tensorwise         = false;
     bool int8_convrot            = false;
     int int8_convrot_group_size  = 0;

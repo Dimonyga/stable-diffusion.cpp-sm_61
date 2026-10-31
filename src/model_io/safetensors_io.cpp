@@ -473,6 +473,9 @@ static bool ggml_type_to_safetensors_dtype(ggml_type type, std::string* dtype) {
         case GGML_TYPE_I32:
             *dtype = "I32";
             return true;
+        case GGML_TYPE_I8:
+            *dtype = "I8";
+            return true;
         default:
             return false;
     }
@@ -566,7 +569,9 @@ bool SafetensorsStreamingWriter::write_metadata(const std::string& file_path,
     for (size_t i = 0; i < tensors.size(); i++) {
         const TensorWritePlan& plan = tensors[i];
         std::string dtype;
-        if (!ggml_type_to_safetensors_dtype(plan.type, &dtype)) {
+        if (plan.u8) {
+            dtype = "U8";
+        } else if (!ggml_type_to_safetensors_dtype(plan.type, &dtype)) {
             set_error(error,
                       "unsupported safetensors dtype '" + std::string(ggml_type_name(plan.type)) +
                           "' for tensor '" + plan.name + "'");
